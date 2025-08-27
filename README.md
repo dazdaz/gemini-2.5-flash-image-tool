@@ -1,0 +1,66 @@
+# Vertex AI Gemini 2.5 Flash Image API CLI Tool
+
+A command-line interface (CLI) tool for interacting with the **Vertex AI Gemini 2.5 Flash Image API**.
+
+This script enables various image-based operations like **text-to-image generation**, **image editing**, and **creative composition** directly from your terminal.
+
+---
+
+## ⚡ Features
+
+* **Text-to-Image Generation**: Create images from text descriptions.
+* **Image Editing**: Modify images with a simple text prompt (add, remove, or change objects).
+* **Photo Restoration**: Enhance old or damaged photos, remove scratches, and improve details.
+* **Style Transfer**: Apply the style of one image to another, with or without a reference image.
+* **Creative Composition**: Combine elements from multiple images (up to three) into a single new image.
+* **Sketch to Image**: Turn a simple sketch into a detailed, fleshed-out image.
+* **Add Text to Image**: Render text onto an image at a specified location.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+* **Python 3.8+**
+* **Google Cloud Project**: You need an active Google Cloud project with the Vertex AI API enabled.
+* **Authentication**: Ensure you're authenticated with Google Cloud. The easiest way is to run:
+    ```bash
+    gcloud auth application-default login
+    ```
+
+---
+
+## 💡 Usage
+
+The tool uses a subcommand structure. The general syntax is:
+
+```bash
+python multi-photo.py <command> [options]
+
+# Example of text-to-image generation: creates a new image from a text prompt.
+./photo-tool.py generate -p "draw me a horse on the beach, gallopping into the sunset" horse.jpg
+
+# Example of image editing: modifies an input image based on a text prompt.
+./photo-tool.py edit ~/Downloads/1.jpeg ./1-restored.jpeg "remove background"
+
+# Example of photo restoration: enhances an old or damaged photo.
+./photo-tool.py restore ~/Downloads/1.jpeg ./1-restored.jpeg -p "Fixing fading, tears, scratches but don't make any other changes"
+
+# Example of sketch-to-image: transforms a sketch into a detailed image.
+./photo-tool.py sketch_to_image sketch.png -p "A photorealistic black sports car" detailed_car.png
+
+# Example of adding text: renders text onto an image.
+./photo-tool.py add_text image.png -p "Add the words 'Happy Birthday!' in cursive at the top center of the image" new_image.png
+
+# Example of creative composition: combines elements from multiple images.
+./photo-tool.py compose --input_file1 background.jpg --input_file2 person.png -p "Place the person from the second image in front of the background" final.png
+
+# Example of style transfer (text-based): applies a style described by a text prompt.
+./photo-tool.py style_transfer input.png stylized.png -p "In the style of a watercolor painting"
+
+# Another example of style transfer (text-based): applies a style described by a text prompt.
+./photo-tool.py style_transfer input.png -p "In the style of a watercolor painting" stylized.png
+
+# Example of style transfer (reference-based): uses a second image as a style reference.
+./photo-tool.py style_transfer input.png --style_ref_image my_style.png -p "Apply the style of the second image to the first" stylized.png
