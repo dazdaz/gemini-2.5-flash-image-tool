@@ -56,6 +56,7 @@ python aiphoto-tool.py <command> [options]
 
 # Example of creative composition: combines elements from multiple images.
 ./aiphoto-tool.py compose --input_file1 background.jpg --input_file2 person.png -p "Place the person from the second image in front of the background" final.png
+./aiphoto-tool.py compose --input_file1 picofme.JPG --input_file2 cap.png -p "Place the cap from the second image onto the man's head in the first image but don't change any facial features" man_with_cap.jpeg
 
 # Example of style transfer (text-based): applies a style described by a text prompt.
 ./aiphoto-tool.py style_transfer input.png stylized.png -p "In the style of a watercolor painting"
