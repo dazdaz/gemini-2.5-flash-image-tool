@@ -42,11 +42,11 @@ python aiphoto-tool.py <command> [options]
 ./aiphoto-tool.py generate -p "draw me a horse on the beach, gallopping into the sunset" horse.jpg
 
 # Example of image editing: modifies an input image based on a text prompt.
-./aiphoto-tool.py edit ~/Downloads/1.jpeg ./1-myfile.jpeg -p "remove background"
+./aiphoto-tool.py edit 1.jpeg 1-myfile.jpeg -p "remove background"
 ./aiphoto-tool.py edit my_photo.jpeg my_photo_new_look.jpeg -p "change my clothes to a blue suit"
 
 # Example of photo restoration: enhances an old or damaged photo.
-./aiphoto-tool.py restore ~/Downloads/1.jpeg ./1-restored.jpeg -p "Fixing fading, tears, scratches but don't make any other changes"
+./aiphoto-tool.py restore 1.jpeg 1-restored.jpeg -p "Fixing fading, tears, scratches but don't make any other changes"
 
 # Example of sketch-to-image: transforms a sketch into a detailed image.
 ./aiphoto-tool.py sketch_to_image sketch.png -p "A photorealistic black sports car" detailed_car.png
