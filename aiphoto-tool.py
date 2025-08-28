@@ -3,16 +3,21 @@
 import os
 import argparse
 import mimetypes
+import tempfile
+import urllib.request
+import urllib.parse
+from pathlib import Path
 from PIL import Image as PILImage
 
 try:
     from google.genai import Client
     from google.genai.types import GenerateContentConfig, Part
     import google.auth
+    from google.cloud import storage
 except ImportError:
     print("Error: Required Google libraries not found.")
     print("Please install dependencies using 'uv pip install -r requirements.txt'")
-    print("requirements.txt should contain: google-genai, google-auth, Pillow")
+    print("requirements.txt should contain: google-genai, google-auth, google-cloud-storage, Pillow")
     exit(1)
 
 # --- Configuration ---
@@ -23,10 +28,13 @@ MAX_RESOLUTION = "1024x1024"
 # --- Initialize Vertex AI Client ---
 client = None
 PROJECT_ID = ""
+gcs_client = None
 
 def initialize_client():
     global client
     global PROJECT_ID
+    global gcs_client
+    
     if client:
         return client
 
@@ -42,37 +50,139 @@ def initialize_client():
             PROJECT_ID = project_id_auth
 
         client = Client(vertexai=True, project=PROJECT_ID, location=LOCATION, credentials=credentials)
+        gcs_client = storage.Client(credentials=credentials, project=PROJECT_ID)
         print(f"Client initialized for project {PROJECT_ID} in {LOCATION}")
     except Exception as e:
         print(f"Error initializing client: {e}")
         print("Please ensure you have authenticated with Google Cloud (e.g., 'gcloud auth application-default login') and the Vertex AI API is enabled.")
     return client
 
-def load_image_part(image_path: str) -> Part | None:
-    """Loads an image from a file path and returns a GenAI Part."""
-    image_path = os.path.expanduser(image_path)
-    if not os.path.exists(image_path):
-        print(f"Error: Input image file not found at {image_path}")
-        return None
+def download_from_url(url: str, temp_dir: str) -> str | None:
+    """Downloads a file from a URL to a temporary location."""
     try:
-        with open(image_path, "rb") as f:
+        # Parse URL to get filename
+        parsed_url = urllib.parse.urlparse(url)
+        filename = os.path.basename(parsed_url.path) or "downloaded_image"
+        
+        # Ensure filename has an extension
+        if '.' not in filename:
+            # Try to determine extension from content-type
+            with urllib.request.urlopen(url) as response:
+                content_type = response.headers.get('Content-Type', '')
+                if 'jpeg' in content_type or 'jpg' in content_type:
+                    filename += '.jpg'
+                elif 'png' in content_type:
+                    filename += '.png'
+                elif 'webp' in content_type:
+                    filename += '.webp'
+                else:
+                    filename += '.jpg'  # Default to jpg
+        
+        temp_path = os.path.join(temp_dir, filename)
+        
+        print(f"Downloading from URL: {url}")
+        urllib.request.urlretrieve(url, temp_path)
+        print(f"Downloaded to temporary file: {filename}")
+        return temp_path
+    except Exception as e:
+        print(f"Error downloading from URL {url}: {e}")
+        return None
+
+def download_from_gcs(gcs_path: str, temp_dir: str) -> str | None:
+    """Downloads a file from GCS to a temporary location."""
+    global gcs_client
+    
+    try:
+        # Parse GCS path
+        if not gcs_path.startswith("gs://"):
+            print(f"Error: Invalid GCS path format: {gcs_path}")
+            return None
+        
+        # Remove gs:// prefix and split into bucket and blob
+        path_without_prefix = gcs_path[5:]
+        parts = path_without_prefix.split('/', 1)
+        
+        if len(parts) != 2:
+            print(f"Error: Invalid GCS path format: {gcs_path}")
+            return None
+        
+        bucket_name, blob_name = parts
+        filename = os.path.basename(blob_name)
+        temp_path = os.path.join(temp_dir, filename)
+        
+        print(f"Downloading from GCS: {gcs_path}")
+        
+        # Initialize GCS client if needed
+        if not gcs_client:
+            initialize_client()
+        
+        bucket = gcs_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.download_to_filename(temp_path)
+        
+        print(f"Downloaded to temporary file: {filename}")
+        return temp_path
+    except Exception as e:
+        print(f"Error downloading from GCS {gcs_path}: {e}")
+        return None
+
+def get_local_path(input_path: str, temp_dir: str) -> str | None:
+    """
+    Returns a local file path for the input, downloading if necessary.
+    Supports:
+    - Local file paths
+    - GCS paths (gs://bucket/path)
+    - HTTP/HTTPS URLs
+    """
+    # Check if it's a URL
+    if input_path.startswith(('http://', 'https://')):
+        return download_from_url(input_path, temp_dir)
+    
+    # Check if it's a GCS path
+    elif input_path.startswith('gs://'):
+        return download_from_gcs(input_path, temp_dir)
+    
+    # Otherwise, treat as local file
+    else:
+        expanded_path = os.path.expanduser(input_path)
+        if os.path.exists(expanded_path):
+            return expanded_path
+        else:
+            print(f"Error: Local file not found: {expanded_path}")
+            return None
+
+def load_image_part(image_path: str, temp_dir: str = None) -> Part | None:
+    """
+    Loads an image from a file path, URL, or GCS bucket and returns a GenAI Part.
+    """
+    # Create temporary directory if needed
+    if temp_dir is None:
+        temp_dir = tempfile.mkdtemp(prefix="gemini_image_")
+    
+    # Get local path (download if necessary)
+    local_path = get_local_path(image_path, temp_dir)
+    if not local_path:
+        return None
+    
+    try:
+        with open(local_path, "rb") as f:
             image_bytes = f.read()
 
-        mime_type, _ = mimetypes.guess_type(image_path)
+        mime_type, _ = mimetypes.guess_type(local_path)
         if not mime_type or not mime_type.startswith("image/"):
-            ext = os.path.splitext(image_path)[1].lower()
+            ext = os.path.splitext(local_path)[1].lower()
             if ext in {".jpg", ".jpeg"}: mime_type = "image/jpeg"
             elif ext == ".png": mime_type = "image/png"
             elif ext == ".webp": mime_type = "image/webp"
             elif ext == ".bmp": mime_type = "image/bmp"
             else:
-                print(f"Warning: Could not determine MIME type for {image_path}. Attempting image/jpeg.")
+                print(f"Warning: Could not determine MIME type for {local_path}. Attempting image/jpeg.")
                 mime_type = "image/jpeg"
 
-        print(f"Loaded image {os.path.basename(image_path)} as {mime_type}")
+        print(f"Loaded image {os.path.basename(local_path)} as {mime_type}")
         return Part.from_bytes(data=image_bytes, mime_type=mime_type)
     except Exception as e:
-        print(f"Error loading image {image_path}: {e}")
+        print(f"Error loading image {local_path}: {e}")
         return None
 
 def call_gemini_api(contents: list, output_path: str):
@@ -132,65 +242,71 @@ def handle_generate(args):
 
 def handle_edit(args):
     print("Mode: Image Editing")
-    image_part = load_image_part(args.input_file)
-    if image_part:
-        contents = [image_part, args.prompt]
-        call_gemini_api(contents, args.output_file)
+    with tempfile.TemporaryDirectory(prefix="gemini_image_") as temp_dir:
+        image_part = load_image_part(args.input_file, temp_dir)
+        if image_part:
+            contents = [image_part, args.prompt]
+            call_gemini_api(contents, args.output_file)
 
 def handle_restore(args):
     print("Mode: Photo Restoration")
-    image_part = load_image_part(args.input_file)
-    if image_part:
-        contents = [image_part, args.prompt]
-        call_gemini_api(contents, args.output_file)
+    with tempfile.TemporaryDirectory(prefix="gemini_image_") as temp_dir:
+        image_part = load_image_part(args.input_file, temp_dir)
+        if image_part:
+            contents = [image_part, args.prompt]
+            call_gemini_api(contents, args.output_file)
 
 def handle_style_transfer(args):
     print("Mode: Style Transfer")
-    input_image_part = load_image_part(args.input_file)
-    if not input_image_part: return
+    with tempfile.TemporaryDirectory(prefix="gemini_image_") as temp_dir:
+        input_image_part = load_image_part(args.input_file, temp_dir)
+        if not input_image_part: return
 
-    contents = [input_image_part]
-    if args.style_ref_image:
-        style_image_part = load_image_part(args.style_ref_image)
-        if not style_image_part: return
-        contents.append(style_image_part)
-        print(f"Using style reference image: {os.path.basename(args.style_ref_image)}")
+        contents = [input_image_part]
+        if args.style_ref_image:
+            style_image_part = load_image_part(args.style_ref_image, temp_dir)
+            if not style_image_part: return
+            contents.append(style_image_part)
+            print(f"Using style reference image: {os.path.basename(args.style_ref_image)}")
 
-    contents.append(args.prompt)
-    call_gemini_api(contents, args.output_file)
+        contents.append(args.prompt)
+        call_gemini_api(contents, args.output_file)
 
 def handle_compose(args):
     print("Mode: Creative Composition")
-    contents = []
-    input_parts = {
-        "input1": args.input_file1,
-        "input2": args.input_file2,
-        "input3": args.input_file3,
-    }
-    for key, path in input_parts.items():
-        if path:
-            image_part = load_image_part(path)
-            if not image_part: return
-            contents.append(image_part)
-    if not contents:
-        print("Error: At least one input image is required for compose mode.")
-        return
-    contents.append(args.prompt)
-    call_gemini_api(contents, args.output_file)
+    with tempfile.TemporaryDirectory(prefix="gemini_image_") as temp_dir:
+        contents = []
+        input_parts = {
+            "input1": args.input_file1,
+            "input2": args.input_file2,
+            "input3": args.input_file3,
+        }
+        for key, path in input_parts.items():
+            if path:
+                image_part = load_image_part(path, temp_dir)
+                if not image_part: return
+                contents.append(image_part)
+        if not contents:
+            print("Error: At least one input image is required for compose mode.")
+            return
+        contents.append(args.prompt)
+        call_gemini_api(contents, args.output_file)
 
 def handle_add_text(args):
     print("Mode: Add Text to Image")
-    image_part = load_image_part(args.input_file)
-    if image_part:
-        contents = [image_part, args.prompt]
-        call_gemini_api(contents, args.output_file)
+    with tempfile.TemporaryDirectory(prefix="gemini_image_") as temp_dir:
+        image_part = load_image_part(args.input_file, temp_dir)
+        if image_part:
+            contents = [image_part, args.prompt]
+            call_gemini_api(contents, args.output_file)
 
 def handle_sketch_to_image(args):
     print("Mode: Sketch to Image")
-    image_part = load_image_part(args.input_file)
-    if image_part:
-        contents = [image_part, args.prompt]
-        call_gemini_api(contents, args.output_file)
+    with tempfile.TemporaryDirectory(prefix="gemini_image_") as temp_dir:
+        image_part = load_image_part(args.input_file, temp_dir)
+        if image_part:
+            contents = [image_part, args.prompt]
+            call_gemini_api(contents, args.output_file)
 
 # --- Main Execution & Argument Parsing ---
 if __name__ == "__main__":
@@ -200,12 +316,16 @@ if __name__ == "__main__":
             f"Model ID: {MODEL_ID}\n"
             f"Max Output Resolution: {MAX_RESOLUTION}\n"
             "Installation: uv pip install -r requirements.txt\n\n"
+            "Input files can be:\n"
+            "  - Local file paths: /path/to/image.jpg or ./image.png\n"
+            "  - GCS paths: gs://bucket-name/path/to/image.jpg\n"
+            "  - URLs: https://example.com/image.jpg\n\n"
             "General Usage:\n"
-            "  ./multi-photo.py <command> -p \"Your text prompt...\" [options] [INPUT_FILE(s)] [OUTPUT_FILE]\n\n"
+            "  ./aiphoto-tool.py <command> -p \"Your text prompt...\" [options] [INPUT_FILE(s)] [OUTPUT_FILE]\n\n"
             "Most commands require:\n"
             "  1. A text prompt: Use -p or --prompt.\n"
             "  2. Input and/or output file paths.\n\n"
-            "Use './multi-photo.py <command> -h' for details on each command's specific arguments."
+            "Use './aiphoto-tool.py <command> -h' for details on each command's specific arguments."
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
@@ -219,14 +339,14 @@ if __name__ == "__main__":
 
     # --- Edit ---
     parse_edit = subparsers.add_parser("edit", help="General mask-free image editing (add/remove/move objects, change backgrounds).")
-    parse_edit.add_argument("input_file", help="INPUT_FILE path to the image to edit.")
+    parse_edit.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the image to edit.")
     parse_edit.add_argument("output_file", help="OUTPUT_FILE path to save the edited image.")
     parse_edit.add_argument("-p", "--prompt", required=True, help="Text prompt describing the edit (e.g., 'Remove the car', 'Make the sky blue').")
     parse_edit.set_defaults(func=handle_edit)
 
     # --- Restore ---
     parse_restore = subparsers.add_parser("restore", help="Restore and enhance old or damaged photos.")
-    parse_restore.add_argument("input_file", help="INPUT_FILE path to the old image to restore.")
+    parse_restore.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the old image to restore.")
     parse_restore.add_argument("output_file", help="OUTPUT_FILE path to save the restored image.")
     parse_restore.add_argument(
         "-p", "--prompt",
@@ -237,35 +357,34 @@ if __name__ == "__main__":
 
     # --- Style Transfer ---
     parse_style = subparsers.add_parser("style_transfer", help="Apply a new style to an image.")
-    parse_style.add_argument("input_file", help="INPUT_FILE path to the content image.")
+    parse_style.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the content image.")
     parse_style.add_argument("output_file", help="OUTPUT_FILE path to save the stylized image.")
     parse_style.add_argument("-p", "--prompt", required=True, help="Prompt describing the desired style (e.g., 'In the style of Van Gogh') or how to use the reference.")
-    parse_style.add_argument("--style_ref_image", help="(Optional) STYLE_REF_IMAGE path to an image to use as style reference.", required=False)
+    parse_style.add_argument("--style_ref_image", help="(Optional) STYLE_REF_IMAGE path/URL/GCS path to an image to use as style reference.", required=False)
     parse_style.set_defaults(func=handle_style_transfer)
 
     # --- Compose ---
     parse_compose = subparsers.add_parser("compose", help="Combine elements from up to 3 reference images and text.")
     parse_compose.add_argument("output_file", help="OUTPUT_FILE path to save the composed image.")
     parse_compose.add_argument("-p", "--prompt", required=True, help="Prompt describing how to combine the images.")
-    parse_compose.add_argument("--input_file1", required=True, help="INPUT_FILE1 path to the first input image.")
-    parse_compose.add_argument("--input_file2", help="(Optional) INPUT_FILE2 path to the second input image.")
-    parse_compose.add_argument("--input_file3", help="(Optional) INPUT_FILE3 path to the third input image.")
+    parse_compose.add_argument("--input_file1", required=True, help="INPUT_FILE1 path/URL/GCS path to the first input image.")
+    parse_compose.add_argument("--input_file2", help="(Optional) INPUT_FILE2 path/URL/GCS path to the second input image.")
+    parse_compose.add_argument("--input_file3", help="(Optional) INPUT_FILE3 path/URL/GCS path to the third input image.")
     parse_compose.set_defaults(func=handle_compose)
 
     # --- Add Text ---
     parse_add_text = subparsers.add_parser("add_text", help="Render text on an image.")
-    parse_add_text.add_argument("input_file", help="INPUT_FILE path to the image.")
+    parse_add_text.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the image.")
     parse_add_text.add_argument("output_file", help="OUTPUT_FILE path to save the image with text.")
     parse_add_text.add_argument("-p", "--prompt", required=True, help="Prompt describing the text and its placement (e.g., 'Add title \"Summer Fest\" at the top').")
     parse_add_text.set_defaults(func=handle_add_text)
 
     # --- Sketch to Image ---
     parse_sketch = subparsers.add_parser("sketch_to_image", help="Generate a detailed image from a sketch.")
-    parse_sketch.add_argument("input_file", help="INPUT_FILE path to the sketch image.")
+    parse_sketch.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the sketch image.")
     parse_sketch.add_argument("output_file", help="OUTPUT_FILE path to save the generated image.")
     parse_sketch.add_argument("-p", "--prompt", default="Flesh out this sketch into a detailed color image.", help="Optional prompt to guide generation.")
     parse_sketch.set_defaults(func=handle_sketch_to_image)
 
     args = parser.parse_args()
     args.func(args)
-
