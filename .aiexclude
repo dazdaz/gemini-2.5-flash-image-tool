@@ -1,0 +1,10 @@
+.venv/
+.env
+*.pem
+*.key
+credentials.json
+secrets.yml
+.vscode/
+.idea/
+settings/
+.DS_Store
