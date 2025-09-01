@@ -8,3 +8,6 @@ secrets.yml
 .idea/
 settings/
 .DS_Store
+*.mp4
+*.mp3
+*.flac
