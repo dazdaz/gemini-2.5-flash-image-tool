@@ -41,6 +41,10 @@ python aiphoto-tool.py <command> [options]
 # Example of text-to-image generation: creates a new image from a text prompt.
 ./aiphoto-tool.py generate -p "draw me a horse on the beach, gallopping into the sunset" horse.jpg
 
+# Specify the aspect, else default to 16:19
+./aiphoto-tool.py generate output.jpg -p "A sunset over mountains" --aspect-ratio 21:9
+./aiphoto-tool.py edit input.jpg output.jpg -p "Remove the car" --aspect-ratio 1:1
+
 # Example of image editing: modifies an input image based on a text prompt.
 ./aiphoto-tool.py edit 1.jpeg 1-myfile.jpeg -p "remove background"
 ./aiphoto-tool.py edit my_photo.jpeg my_photo_new_look.jpeg -p "change my clothes to a blue suit"
