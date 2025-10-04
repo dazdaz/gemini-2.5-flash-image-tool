@@ -22,8 +22,17 @@ except ImportError:
 
 # --- Configuration ---
 LOCATION = "global"  # Use global endpoint for Vertex AI
-MODEL_ID = "gemini-2.5-flash-image-preview"
+MODEL_ID = "gemini-2.5-flash-image"
 MAX_RESOLUTION = "1024x1024"
+
+# Supported aspect ratios
+ASPECT_RATIOS = {
+    "landscape": ["21:9", "16:9", "4:3", "3:2"],
+    "square": ["1:1"],
+    "portrait": ["9:16", "3:4", "2:3"],
+    "flexible": ["5:4", "4:5"]
+}
+ALL_ASPECT_RATIOS = [ar for ratios in ASPECT_RATIOS.values() for ar in ratios]
 
 # --- Initialize Vertex AI Client ---
 client = None
@@ -185,7 +194,7 @@ def load_image_part(image_path: str, temp_dir: str = None) -> Part | None:
         print(f"Error loading image {local_path}: {e}")
         return None
 
-def call_gemini_api(contents: list, output_path: str):
+def call_gemini_api(contents: list, output_path: str, aspect_ratio: str = "16:9"):
     """Sends the content parts to Gemini API and saves the resulting image."""
     if not initialize_client():
         print("Client not initialized. Cannot proceed.")
@@ -198,13 +207,14 @@ def call_gemini_api(contents: list, output_path: str):
     output_path = os.path.expanduser(output_path)
 
     try:
-        print(f"Sending request to Gemini model: {MODEL_ID}...")
+        print(f"Sending request to Gemini model: {MODEL_ID} with aspect ratio {aspect_ratio}...")
         response = client.models.generate_content(
             model=MODEL_ID,
             contents=contents,
             config=GenerateContentConfig(
                 response_modalities=["TEXT", "IMAGE"],
                 candidate_count=1,
+                aspect_ratio=aspect_ratio,
             ),
         )
 
@@ -218,7 +228,7 @@ def call_gemini_api(contents: list, output_path: str):
                     try:
                         with open(output_path, "wb") as f:
                             f.write(part.inline_data.data)
-                        print(f"Output image saved to {output_path} (Max resolution: {MAX_RESOLUTION})")
+                        print(f"Output image saved to {output_path} (Aspect ratio: {aspect_ratio})")
                         has_image = True
                     except Exception as e:
                         print(f"Error saving image: {e}")
@@ -238,7 +248,7 @@ def call_gemini_api(contents: list, output_path: str):
 def handle_generate(args):
     print("Mode: Text-to-Image Generation")
     contents = [args.prompt]
-    call_gemini_api(contents, args.output_file)
+    call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 def handle_edit(args):
     print("Mode: Image Editing")
@@ -246,7 +256,7 @@ def handle_edit(args):
         image_part = load_image_part(args.input_file, temp_dir)
         if image_part:
             contents = [image_part, args.prompt]
-            call_gemini_api(contents, args.output_file)
+            call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 def handle_restore(args):
     print("Mode: Photo Restoration")
@@ -254,7 +264,7 @@ def handle_restore(args):
         image_part = load_image_part(args.input_file, temp_dir)
         if image_part:
             contents = [image_part, args.prompt]
-            call_gemini_api(contents, args.output_file)
+            call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 def handle_style_transfer(args):
     print("Mode: Style Transfer")
@@ -270,7 +280,7 @@ def handle_style_transfer(args):
             print(f"Using style reference image: {os.path.basename(args.style_ref_image)}")
 
         contents.append(args.prompt)
-        call_gemini_api(contents, args.output_file)
+        call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 def handle_compose(args):
     print("Mode: Creative Composition")
@@ -290,7 +300,7 @@ def handle_compose(args):
             print("Error: At least one input image is required for compose mode.")
             return
         contents.append(args.prompt)
-        call_gemini_api(contents, args.output_file)
+        call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 def handle_add_text(args):
     print("Mode: Add Text to Image")
@@ -298,7 +308,7 @@ def handle_add_text(args):
         image_part = load_image_part(args.input_file, temp_dir)
         if image_part:
             contents = [image_part, args.prompt]
-            call_gemini_api(contents, args.output_file)
+            call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 def handle_sketch_to_image(args):
     print("Mode: Sketch to Image")
@@ -306,7 +316,7 @@ def handle_sketch_to_image(args):
         image_part = load_image_part(args.input_file, temp_dir)
         if image_part:
             contents = [image_part, args.prompt]
-            call_gemini_api(contents, args.output_file)
+            call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
 # --- Main Execution & Argument Parsing ---
 if __name__ == "__main__":
@@ -320,11 +330,17 @@ if __name__ == "__main__":
             "  - Local file paths: /path/to/image.jpg or ./image.png\n"
             "  - GCS paths: gs://bucket-name/path/to/image.jpg\n"
             "  - URLs: https://example.com/image.jpg\n\n"
+            "Supported Aspect Ratios:\n"
+            "  Landscape: 21:9, 16:9, 4:3, 3:2\n"
+            "  Square: 1:1\n"
+            "  Portrait: 9:16, 3:4, 2:3\n"
+            "  Flexible: 5:4, 4:5\n\n"
             "General Usage:\n"
             "  ./aiphoto-tool.py <command> -p \"Your text prompt...\" [options] [INPUT_FILE(s)] [OUTPUT_FILE]\n\n"
             "Most commands require:\n"
             "  1. A text prompt: Use -p or --prompt.\n"
-            "  2. Input and/or output file paths.\n\n"
+            "  2. Input and/or output file paths.\n"
+            "  3. Optional aspect ratio: Use --aspect-ratio (default: 16:9).\n\n"
             "Use './aiphoto-tool.py <command> -h' for details on each command's specific arguments."
         ),
         formatter_class=argparse.RawTextHelpFormatter
@@ -335,6 +351,8 @@ if __name__ == "__main__":
     parse_generate = subparsers.add_parser("generate", help="Text-to-image generation.")
     parse_generate.add_argument("output_file", help="OUTPUT_FILE path to save the generated image.")
     parse_generate.add_argument("-p", "--prompt", required=True, help="Text prompt for image generation.")
+    parse_generate.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS, 
+                               help="Aspect ratio for the generated image (default: 16:9).")
     parse_generate.set_defaults(func=handle_generate)
 
     # --- Edit ---
@@ -342,6 +360,8 @@ if __name__ == "__main__":
     parse_edit.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the image to edit.")
     parse_edit.add_argument("output_file", help="OUTPUT_FILE path to save the edited image.")
     parse_edit.add_argument("-p", "--prompt", required=True, help="Text prompt describing the edit (e.g., 'Remove the car', 'Make the sky blue').")
+    parse_edit.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS,
+                           help="Aspect ratio for the output image (default: 16:9).")
     parse_edit.set_defaults(func=handle_edit)
 
     # --- Restore ---
@@ -353,6 +373,8 @@ if __name__ == "__main__":
         default="Restore this photograph: enhance colors, improve details and sharpness, and remove defects like scratches or fading.",
         help="Prompt for restoration guidance."
     )
+    parse_restore.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS,
+                              help="Aspect ratio for the output image (default: 16:9).")
     parse_restore.set_defaults(func=handle_restore)
 
     # --- Style Transfer ---
@@ -361,6 +383,8 @@ if __name__ == "__main__":
     parse_style.add_argument("output_file", help="OUTPUT_FILE path to save the stylized image.")
     parse_style.add_argument("-p", "--prompt", required=True, help="Prompt describing the desired style (e.g., 'In the style of Van Gogh') or how to use the reference.")
     parse_style.add_argument("--style_ref_image", help="(Optional) STYLE_REF_IMAGE path/URL/GCS path to an image to use as style reference.", required=False)
+    parse_style.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS,
+                            help="Aspect ratio for the output image (default: 16:9).")
     parse_style.set_defaults(func=handle_style_transfer)
 
     # --- Compose ---
@@ -370,6 +394,8 @@ if __name__ == "__main__":
     parse_compose.add_argument("--input_file1", required=True, help="INPUT_FILE1 path/URL/GCS path to the first input image.")
     parse_compose.add_argument("--input_file2", help="(Optional) INPUT_FILE2 path/URL/GCS path to the second input image.")
     parse_compose.add_argument("--input_file3", help="(Optional) INPUT_FILE3 path/URL/GCS path to the third input image.")
+    parse_compose.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS,
+                              help="Aspect ratio for the output image (default: 16:9).")
     parse_compose.set_defaults(func=handle_compose)
 
     # --- Add Text ---
@@ -377,6 +403,8 @@ if __name__ == "__main__":
     parse_add_text.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the image.")
     parse_add_text.add_argument("output_file", help="OUTPUT_FILE path to save the image with text.")
     parse_add_text.add_argument("-p", "--prompt", required=True, help="Prompt describing the text and its placement (e.g., 'Add title \"Summer Fest\" at the top').")
+    parse_add_text.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS,
+                               help="Aspect ratio for the output image (default: 16:9).")
     parse_add_text.set_defaults(func=handle_add_text)
 
     # --- Sketch to Image ---
@@ -384,6 +412,8 @@ if __name__ == "__main__":
     parse_sketch.add_argument("input_file", help="INPUT_FILE path/URL/GCS path to the sketch image.")
     parse_sketch.add_argument("output_file", help="OUTPUT_FILE path to save the generated image.")
     parse_sketch.add_argument("-p", "--prompt", default="Flesh out this sketch into a detailed color image.", help="Optional prompt to guide generation.")
+    parse_sketch.add_argument("--aspect-ratio", default="16:9", choices=ALL_ASPECT_RATIOS,
+                             help="Aspect ratio for the output image (default: 16:9).")
     parse_sketch.set_defaults(func=handle_sketch_to_image)
 
     args = parser.parse_args()
