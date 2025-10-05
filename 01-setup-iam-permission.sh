@@ -62,7 +62,7 @@ log_info() {
 }
 
 log_success() {
-    echo -e "${GREEN}[‚úî]${NC} $1"
+    echo -e "${GREEN}[‚Äö√∫√Æ]${NC} $1"
 }
 
 log_warning() {
