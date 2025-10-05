@@ -18,7 +18,7 @@ log_info() {
 }
 
 log_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
+    echo -e "${GREEN}[‚úì]${NC} $1"
 }
 
 log_error() {
@@ -29,15 +29,20 @@ log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
+# Check for virtual environment (uv first, then traditional)
+if [ -d ".venv" ]; then
+    log_info "Activating uv virtual environment..."
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
+    log_info "Activating traditional virtual environment..."
+    source venv/bin/activate
+else
     log_error "Virtual environment not found. Please run ./setup.sh first."
+    log_info "Or create manually:"
+    log_info "  With uv: uv venv && source .venv/bin/activate && uv pip install -r requirements.txt"
+    log_info "  With Python: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
     exit 1
 fi
-
-# Activate virtual environment
-log_info "Activating virtual environment..."
-source venv/bin/activate
 
 # Check if GOOGLE_CLOUD_PROJECT is set
 if [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
@@ -58,4 +63,5 @@ log_success "Using project: $GOOGLE_CLOUD_PROJECT"
 
 # Run the tool with all arguments
 log_info "Running: python aiphoto-tool.py $@"
+export GOOGLE_API_KEY="abcdefghijklmnop"
 python aiphoto-tool.py "$@"
