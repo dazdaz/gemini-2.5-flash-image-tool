@@ -8,12 +8,16 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 import time
+from PIL import Image
 
 try:
-    from google.genai import Client
-    from google.genai.types import GenerateContentConfig, Part
+    from google import genai
+    from google.genai import types
+    from google.genai.types import Part
+    from PIL import Image
     import google.auth
     from google.cloud import storage
+    import google.auth.transport.requests
 except ImportError:
     print("Error: Required Google libraries not found.")
     print("Please install dependencies:")
@@ -22,7 +26,7 @@ except ImportError:
 
 # --- Configuration ---
 LOCATION = "us-central1"  # Changed from "global" to a specific region
-MODEL_ID = "gemini-2.5-flash-image"  # Updated to valid model
+MODEL_ID = "gemini-2.5-flash-image"
 MAX_RESOLUTION = "1024x1024"
 
 # Valid aspect ratios
@@ -72,6 +76,12 @@ def initialize_client():
         log_debug(f"Credentials type: {type(credentials)}")
         log_debug(f"Project from auth: {project_id_auth}")
         
+        # Check if we have service account credentials and try to get user credentials
+        if hasattr(credentials, 'service_account_email'):
+            log_verbose(f"Service account detected: {credentials.service_account_email}")
+            log_verbose("For Vertex AI, user credentials are recommended. Please ensure you have run:")
+            log_verbose("  gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform")
+        
         if not PROJECT_ID and project_id_auth:
             PROJECT_ID = project_id_auth
             log_verbose(f"Using project from credentials: {PROJECT_ID}")
@@ -79,20 +89,14 @@ def initialize_client():
         if not PROJECT_ID:
             raise ValueError("Could not determine project ID. Please set GOOGLE_CLOUD_PROJECT environment variable.")
 
-        log_verbose(f"Initializing Vertex AI client for project: {PROJECT_ID}, location: {LOCATION}")
+        log_verbose(f"Initializing Gemini client with API key...")
         
-        # Initialize with retry
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                client = Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
-                break
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    log_verbose(f"Initialization attempt {attempt + 1} failed, retrying...")
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                else:
-                    raise e
+        # Use API key authentication
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable not set.")
+        log_verbose("Using API key authentication")
+        client = genai.Client(api_key=api_key)
         
         log_verbose("Initializing GCS client...")
         gcs_client = storage.Client(credentials=credentials, project=PROJECT_ID)
@@ -298,9 +302,11 @@ def call_gemini_api(contents: list, output_path: str, aspect_ratio: str = "16:9"
             print(f"  Contents: {[type(c).__name__ for c in contents]}")
         
         # Create config for image generation
-        config = GenerateContentConfig(
+        config = types.GenerateContentConfig(
             response_modalities=["IMAGE"],
-            candidate_count=1,
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio,
+            )
         )
         
         log_debug(f"Config created: {config}")
@@ -329,43 +335,36 @@ def call_gemini_api(contents: list, output_path: str, aspect_ratio: str = "16:9"
         log_verbose("Response received from API")
         log_debug(f"Response type: {type(response)}")
         
-        if response.candidates:
-            log_verbose(f"Found {len(response.candidates)} candidate(s)")
+        if hasattr(response, 'parts') and response.parts:
+            log_verbose(f"Found {len(response.parts)} part(s)")
             has_image = False
             
-            for idx, candidate in enumerate(response.candidates):
-                log_debug(f"Processing candidate {idx}")
+            for part in response.parts:
+                log_debug(f"Processing part: {type(part)}")
                 
-                for part_idx, part in enumerate(candidate.content.parts):
-                    log_debug(f"  Part {part_idx}: {type(part)}")
-                    
-                    if part.inline_data and part.inline_data.data:
-                        print("---")
-                        print("### Received Image Output:")
-                        try:
-                            image_data = part.inline_data.data
-                            log_verbose(f"Image data size: {len(image_data)} bytes")
-                            
-                            with open(output_path, "wb") as f:
-                                f.write(image_data)
-                            
-                            print(f"‚úì Output image saved to {output_path} (Aspect ratio: {aspect_ratio})")
-                            log_verbose(f"File size: {os.path.getsize(output_path)} bytes")
-                            has_image = True
-                            
-                        except Exception as e:
-                            print(f"Error saving image: {e}")
-                            log_debug(f"Full error: {repr(e)}")
-                            
-                    elif part.text:
-                        log_verbose(f"Text part found: {part.text[:100]}...")
-                        print(f"Model Text Response: {part.text}")
+                if part.text:
+                    log_verbose(f"Text part found: {part.text[:100]}...")
+                    print(f"Model Text Response: {part.text}")
+                elif image := part.as_image():
+                    print("---")
+                    print("### Received Image Output:")
+                    try:
+                        # Use the same approach as the cookbook
+                        image.save(output_path)
                         
+                        print(f"‚Ä¢√Å√ò(Output image saved to {output_path} (Aspect ratio: {aspect_ratio})")
+                        log_verbose(f"File size: {os.path.getsize(output_path)} bytes")
+                        has_image = True
+                        
+                    except Exception as e:
+                        print(f"Error saving image: {e}")
+                        log_debug(f"Full error: {repr(e)}")
+                    
             if not has_image:
                 print("No image data received in the response.")
-                log_debug("No inline_data found in any response parts")
+                log_debug("No image parts found in any response parts")
         else:
-            print("No candidates returned in the response.")
+            print("No parts returned in the response.")
             if hasattr(response, 'prompt_feedback'):
                 print(f"Prompt Feedback: {response.prompt_feedback}")
                 log_debug(f"Full prompt feedback: {response.prompt_feedback}")
@@ -489,6 +488,47 @@ def handle_sketch_to_image(args):
             contents = [image_part, args.prompt]
             call_gemini_api(contents, args.output_file, args.aspect_ratio)
 
+def handle_test(args):
+    """Test command to verify tool setup without making API calls."""
+    print("Mode: Test Configuration")
+    print("Testing tool setup...")
+    
+    # Test project ID
+    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+    if PROJECT_ID:
+        print(f"‚úì Project ID: {PROJECT_ID}")
+    else:
+        print("‚úó Project ID not set")
+    
+    # Test credentials
+    try:
+        credentials, project_id_auth = google.auth.default(
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
+        )
+        print(f"‚úì Credentials loaded: {type(credentials).__name__}")
+        if hasattr(credentials, 'service_account_email'):
+            print(f"  Service account: {credentials.service_account_email}")
+    except Exception as e:
+        print(f"‚úó Credentials error: {e}")
+    
+    # Test imports
+    try:
+        from google.genai import Client
+        print("‚úì Google GenAI client available")
+    except ImportError as e:
+        print(f"‚úó Import error: {e}")
+    
+    # Test configuration
+    print(f"‚úì Model: {MODEL_ID}")
+    print(f"‚úì Location: {LOCATION}")
+    
+    # Test argument parsing
+    print(f"‚úì Debug mode: {DEBUG}")
+    print(f"‚úì Verbose mode: {VERBOSE}")
+    
+    print("\nTool setup test completed!")
+    print("Note: API calls require proper IAM permissions.")
+
 def validate_aspect_ratio(value):
     """Validate aspect ratio argument."""
     if value not in VALID_ASPECT_RATIOS:
@@ -509,6 +549,10 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug output (implies verbose)")
     
     subparsers = parser.add_subparsers(title="commands", dest="command", required=True, help="Available image operations")
+
+    # Test command
+    parse_test = subparsers.add_parser("test", help="Test tool configuration without API calls")
+    parse_test.set_defaults(func=handle_test)
 
     # Generate command
     parse_generate = subparsers.add_parser("generate", help="Text-to-image generation")
@@ -591,4 +635,3 @@ if __name__ == "__main__":
     log_verbose("Verbose mode enabled")
     
     args.func(args)
-
