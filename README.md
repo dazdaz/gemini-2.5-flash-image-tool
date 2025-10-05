@@ -20,14 +20,100 @@ This script enables various image-based operations like **text-to-image generati
 
 ## 🚀 Getting Started
 
+### Quick Setup
+
+The easiest way to get started is to run the setup script:
+
+```bash
+# Clone the repository
+git clone https://github.com/dazdaz/gemini-2.5-flash-image-tool
+cd gemini-2.5-flash-image-tool
+
+# Run the setup script (creates virtual environment and installs dependencies)
+chmod +x setup.sh
+./setup.sh
+
+# Set up IAM permissions (required for first-time setup)
+chmod +x 01-setup-iam-permission.sh
+./01-setup-iam-permission.sh
+```
+
+### Manual Setup
+
+If you prefer to set up manually:
+
+1. **Create a virtual environment**:
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+
+2. **Install dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3. **Set up Google Cloud**:
+    - Authenticate: `gcloud auth login`
+    - Set up application default credentials: `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform`
+    - Enable Vertex AI API: `gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID`
+    - Set up IAM permissions: `./01-setup-iam-permission.sh`
+
+4. **Set environment variable**:
+    ```bash
+    export GOOGLE_CLOUD_PROJECT=your-project-id
+    ```
+
 ### Prerequisites
 
 * **Python 3.8+**
 * **Google Cloud Project**: You need an active Google Cloud project with the Vertex AI API enabled.
 * **Authentication**: Ensure you're authenticated with Google Cloud. The easiest way is to run:
     ```bash
-    gcloud auth application-default login
+    gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform
     ```
+
+---
+
+## 💡 Usage
+
+### Using the Run Script (Recommended)
+
+The easiest way to use the tool is with the provided run script, which handles the virtual environment automatically:
+
+```bash
+# Make the run script executable
+chmod +x run.sh
+
+# Use the run script (it will activate the virtual environment automatically)
+./run.sh generate output.jpg -p "A sunset over mountains"
+./run.sh edit input.jpg output.jpg -p "Remove the car"
+```
+
+### Manual Usage
+
+If you prefer to run the tool manually:
+
+1. Activate the virtual environment:
+    ```bash
+    source venv/bin/activate
+    ```
+
+2. Set your project (if not already set):
+    ```bash
+    export GOOGLE_CLOUD_PROJECT=your-project-id
+    ```
+
+3. Run the tool:
+    ```bash
+    python aiphoto-tool.py <command> [options]
+    ```
+
+The tool uses a subcommand structure. The general syntax is:
+
+```bash
+python aiphoto-tool.py <command> [options]
+```
 
 ---
 

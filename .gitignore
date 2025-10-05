@@ -28,6 +28,7 @@ __pycache__/
 # Dependencies and virtual environments
 node_modules/
 venv/
+env/
 .venv/
 pip-wheel-metadata/
 *.egg-info/
@@ -82,5 +83,61 @@ dump.rdb
 #folder_name/*
 #!folder_name/keepme.txt
 
-# Virtual environments
-.venv
+# Virtual environment
+venv/
+env/
+.venv/
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Output images
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.bmp
+*.gif
+!examples/*.jpg
+!examples/*.jpeg
+!examples/*.png
+!examples/*.webp
+!examples/*.bmp
+!examples/*.gif
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
