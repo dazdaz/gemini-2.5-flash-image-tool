@@ -18,7 +18,7 @@ log_info() {
 }
 
 log_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
+    echo -e "${GREEN}[‚úì]${NC} $1"
 }
 
 log_error() {
@@ -34,6 +34,16 @@ echo "  Gemini Image Generator - Setup Script"
 echo "=================================================="
 echo ""
 
+# Check for uv command
+if command -v uv &> /dev/null; then
+    log_success "uv found - using fast package management"
+    USE_UV=true
+else
+    log_info "uv not found - using traditional Python setup"
+    log_info "Install uv for faster package management: https://docs.astral.sh/uv/getting-started/installation/"
+    USE_UV=false
+fi
+
 # Check if Python 3 is installed
 if ! command -v python3 &> /dev/null; then
     log_error "Python 3 not found. Please install Python 3.8 or higher."
@@ -43,9 +53,18 @@ fi
 log_success "Python 3 found"
 
 # Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
+VENV_DIR="venv"
+if [ "$USE_UV" = true ]; then
+    VENV_DIR=".venv"
+fi
+
+if [ ! -d "$VENV_DIR" ]; then
     log_info "Creating virtual environment..."
-    python3 -m venv venv
+    if [ "$USE_UV" = true ]; then
+        uv venv
+    else
+        python3 -m venv venv
+    fi
     log_success "Virtual environment created"
 else
     log_info "Virtual environment already exists"
@@ -53,9 +72,15 @@ fi
 
 # Activate virtual environment and install dependencies
 log_info "Installing dependencies..."
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+if [ "$USE_UV" = true ]; then
+    source .venv/bin/activate
+    uv pip install --upgrade pip
+    uv pip install -r requirements.txt
+else
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+fi
 log_success "Dependencies installed"
 
 # Check if gcloud is installed
@@ -84,9 +109,24 @@ echo ""
 log_success "Setup complete!"
 echo ""
 echo "To use the tool:"
-echo "  1. Activate the virtual environment: source venv/bin/activate"
+if [ "$USE_UV" = true ]; then
+    echo "  1. Activate the virtual environment: source .venv/bin/activate"
+else
+    echo "  1. Activate the virtual environment: source venv/bin/activate"
+fi
 echo "  2. Set your project: export GOOGLE_CLOUD_PROJECT=your-project-id"
-echo "  3. Run the tool: python aiphoto-tool.py generate output.jpg -p 'A sunset'"
+echo "  3. Test your configuration: ./run.sh test"
+echo "  4. Run the tool: ./run.sh generate output.jpg -p 'A sunset'"
 echo ""
 echo "For first-time setup, also run:"
 echo "  ./01-setup-iam-permission.sh"
+echo ""
+echo "Available commands:"
+echo "  - test: Test configuration without API calls"
+echo "  - generate: Text-to-image generation"
+echo "  - edit: Image editing"
+echo "  - restore: Photo restoration"
+echo "  - style_transfer: Style transfer"
+echo "  - compose: Creative composition"
+echo "  - add_text: Add text to image"
+echo "  - sketch_to_image: Sketch to image"
